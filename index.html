@@ -1,0 +1,90 @@
+<html>
+
+  <video id="localVideo" autoplay playsinline></video>
+  <div class="stage">
+    <video id="person1" autoplay playsinline/>
+    <video id="person2" />
+  </div>
+</html>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+<script>
+
+document.addEventListener('DOMContentLoaded', async _ => {
+  const faceDetection = new FaceDetection({locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection@0.4/${file}`;
+  }});
+
+  faceDetection.setOptions({
+    model: 'short',
+    minDetectionConfidence: 0.5,
+  });
+
+  let faces
+  faceDetection.onResults(results => {
+    console.log('update results', results);
+    // For a real "product" one would have to track the different boxes and their
+    // movement to prevent jumps.
+	  faces = results;
+  });
+
+  const stream = await navigator.mediaDevices.getUserMedia({video: {
+    width: 800,
+    height: 600
+  }});
+
+  localVideo.srcObject = stream;
+  // Update face detection every two ѕeconds.
+  setInterval(() => {
+    faceDetection.send({image: document.getElementById('localVideo')});
+  }, 2000);
+
+  const videoTrack = stream.getTracks()[0];
+  const trackProcessor = new MediaStreamTrackProcessor({ track: videoTrack });
+
+  const trackGenerator = new MediaStreamTrackGenerator({ kind: 'video' });
+
+  const boxWidth = 640;
+  const boxHeight = 360;
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = boxWidth;
+  canvas.height = boxHeight;
+
+  document.body.appendChild(ctx.canvas);
+
+
+  const transformer = new TransformStream({
+    async transform(videoFrame, controller) {
+      if (faces && faces.detections) {
+        const detectedFace = faces.detections[0];
+        if (!detectedFace) {
+          console.log("No face detected");
+          return;
+        }
+        const box = detectedFace.boundingBox;
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx, canvas.height);
+        ctx.drawImage(videoFrame,
+			                Math.min(Math.max(Math.floor(box.xCenter * videoFrame.codedWidth) - boxWidth / 2, 0), videoFrame.codedWidth - boxWidth),
+			                Math.min(Math.max(Math.floor(box.yCenter * videoFrame.codedHeight) - boxHeight / 2, 0), videoFrame.codedHeight - boxHeight),
+                      boxWidth, boxHeight,
+                      0, 0, boxWidth, boxHeight);
+        const newFrame = new VideoFrame(canvas);
+        controller.enqueue(newFrame);
+      }
+      videoFrame.close();
+    },
+  });
+
+  const generator0 = new MediaStreamTrackGenerator({kind: 'video'});
+  generator0.addEventListener('mute', () => console.log('second generator muted'));
+  generator0.addEventListener('unmute', () => console.log('second generator unmuted'));
+
+  const person0 = document.getElementById('person1');
+  person0.srcObject = new MediaStream([generator0]);
+
+  trackProcessor.readable.pipeThrough(transformer).pipeTo(generator0.writable);
+
+});
+
+</script>
